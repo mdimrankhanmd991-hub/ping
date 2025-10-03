@@ -1,0 +1,65 @@
+name: Searching portfolio
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+  repository_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Search
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # === CONFIGURE THIS ===
+          TARGET_URL="https://www.imrankhan.linkpc.net"
+          MAX_JITTER=10
+          # ======================
+
+          USER_AGENTS=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15"
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+          )
+
+          UA="${USER_AGENTS[$RANDOM % ${#USER_AGENTS[@]}]}"
+
+          if [ "$MAX_JITTER" -gt 0 ]; then
+            JITTER=$((RANDOM % (MAX_JITTER + 1)))
+            echo "Sleeping for ${JITTER}s jitter to randomize timing..."
+            sleep "${JITTER}"
+          else
+            echo "Jitter disabled."
+          fi
+
+          RANDSTR=$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 6 || echo $RANDOM)
+          URL="${TARGET_URL}?r=${RANDSTR}"
+
+          echo "Pinging: $URL"
+          curl -sSL --max-time 20 \
+            -H "User-Agent: ${UA}" \
+            -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
+            -H "Accept-Language: en-US,en;q=0.9" \
+            -H "Referer: https://www.google.com/" \
+            --retry 2 --retry-delay 2 \
+            "$URL" > /dev/null || echo "curl failed but continuing"
+
+          echo "Done."
+
+      - name: Re-dispatch workflow
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Triggering self-dispatch to keep workflow alive..."
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/$REPO/dispatches \
+            -d '{"event_type":"auto_ping"}'
